@@ -1,0 +1,92 @@
+from flask import Flask, request, jsonify
+import numpy as np
+import os
+
+app = Flask(__name__)
+
+print("Starting server...")
+
+# ------------------ LOAD MODELS SAFELY ------------------
+
+diabetes_model = None
+image_model = None
+
+# Load diabetes model
+try:
+    import joblib
+    if os.path.exists("diabetes_model.pkl"):
+        diabetes_model = joblib.load("diabetes_model.pkl")
+        print("Diabetes model loaded")
+    else:
+        print("Diabetes model file not found")
+except Exception as e:
+    print("Error loading diabetes model:", e)
+
+# Load image model
+try:
+    from tensorflow.keras.models import load_model
+    if os.path.exists("retinopathy_model.h5"):
+        image_model = load_model("retinopathy_model.h5", compile=False)
+        print("Image model loaded")
+    else:
+        print("Image model file not found")
+except Exception as e:
+    print("Error loading image model:", e)
+
+# ------------------ HOME ------------------
+
+@app.route("/")
+def home():
+    return "API Running Successfully!"
+
+# ------------------ DIABETES PREDICTION ------------------
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    if diabetes_model is None:
+        return jsonify({"error": "Diabetes model not loaded"})
+
+    try:
+        data = np.array(request.json["data"]).reshape(1, -1)
+        prediction = diabetes_model.predict(data)
+
+        return jsonify({
+            "prediction": int(prediction[0]),
+            "message": "Diabetic" if prediction[0] == 1 else "Not Diabetic"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ------------------ IMAGE PREDICTION ------------------
+
+@app.route("/predict_image", methods=["POST"])
+def predict_image():
+    if image_model is None:
+        return jsonify({"error": "Image model not loaded"})
+
+    try:
+        import cv2
+
+        file = request.files["image"]
+        img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+
+        img = cv2.resize(img, (224, 224))
+        img = img / 255.0
+        img = np.expand_dims(img, axis=0)
+
+        pred = image_model.predict(img)
+        result = np.argmax(pred)
+
+        classes = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
+
+        return jsonify({
+            "class": classes[result]
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ------------------ RUN SERVER ------------------
+
+if __name__ == "__main__":
+    app.run(debug=True)
